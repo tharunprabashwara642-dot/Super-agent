@@ -16,8 +16,8 @@
 //   ANTHROPIC_MAX_TOKENS            (default: 16000 — per-reply output cap)
 //   ANTHROPIC_ROUGH_DAILY_LIMIT_PER_KEY (rough requests/day per key, for the
 //                                    usage-warning estimate — default 5000)
-//   AGENT_ENABLE_SANDBOX            ("true" enables the sandbox_run self-testing
-//                                    terminal — see ./sandbox.js)
+//   AGENT_ENABLE_SANDBOX=false       (optional kill switch for the sandbox_run
+//                                    self-testing terminal — enabled by default)
 //
 // GEMINI_API_KEY is still OPTIONAL — Gemini is used ONLY by the real-time
 // Voice Live relay (/voice) near the bottom of this file. Everything else
@@ -179,6 +179,7 @@ if (typeof globalThis.WebSocket === "undefined") {
 
 const { createClient } = require("@supabase/supabase-js");
 const fs = require("fs");
+const { createArtifact } = require("./artifacts");
 
 // ============================================================
 // ERROR HANDLING — catch everything so bot doesn't crash
@@ -415,17 +416,17 @@ async function addGeminiKeyToPool(rawKey) {
 // the credential inbox and startup DB load into that pool.
 // ============================================================
 const brain = require("./anthropic_brain");
-// Isolated self-testing workspace (write code -> run it -> read results),
-// confined to its own directory and gated by AGENT_ENABLE_SANDBOX.
+// Self-testing workspace (write code -> run it -> read results), enabled by
+// default. Set AGENT_ENABLE_SANDBOX=false only to deliberately turn it off.
 const sandbox = require("./sandbox");
 
 // Count of keys currently active in the brain's rotation pool.
 function brainKeyCount() { return brain.keyCount(); }
 
 if (brainKeyCount() === 0) {
-  console.error('❌ No Anthropic API keys configured! Set ANTHROPIC_API_KEY in Railway → Variables.');
+  console.error('❌ No AI API keys configured! Set GEMINI_API_KEY or an OpenAI-compatible API key.');
 }
-console.log(`✅ Loaded ${brainKeyCount()} Anthropic API key(s)`);
+console.log(`✅ Loaded ${brainKeyCount()} active AI API key(s)`);
 
 // ---- chat-provided Anthropic keys join the rotation pool live (mirrors
 // the old Gemini/NVIDIA credential-inbox flow) ----
@@ -2850,6 +2851,9 @@ You have these tools:
 - get_youtube_channel_analytics: Check YouTube stats
 - create_drive_folder: Create a new folder in Google Drive
 - create_google_doc: Create a new Google Doc, optionally with initial text
+- create_artifact: create and deliver a real HTML, DOCX, PDF, or TXT file in
+  this Telegram chat. Use it whenever the user asks for a downloadable file;
+  do not claim a document was created without calling it.
 - create_google_sheet: Create a new Google Sheet
 - update_sheet_data: Write/update values into an existing Google Sheet range
 - delete_drive_file / rename_drive_file / move_drive_file / share_drive_file
@@ -3097,8 +3101,8 @@ SELF-EVOLUTION — you can extend and repair yourself, and you SHOULD:
   (node --check, node <file>, npm test...). ALWAYS test non-trivial code
   here and iterate until it passes BEFORE you edit_own_code / insert_own_code
   or hand code to the user. If a run fails, read the stderr, fix the code,
-  and run again — don't ship code you haven't seen run green. Only works if
-  AGENT_ENABLE_SANDBOX=true.
+  and run again — don't ship code you haven't seen run green. It is enabled
+  by default; AGENT_ENABLE_SANDBOX=false is the explicit kill switch.
 SELF-EDIT QUALITY BAR: a self-edit isn't done just because it applied
 without erroring. Before editing yourself: (1) actually read_own_code
 around the area first — don't guess at what's there from memory of this
@@ -3126,6 +3130,12 @@ AGENTIC HARNESS CORE:
 - If a previous strategy failed, inspect the failure and change the strategy before retrying.
 - Do not create duplicate goals/tasks when the current message is clearly a continuation of an existing one.
 - If an action is destructive or sensitive, obey the confirmation gate; never claim it happened before confirmation.
+
+DOCUMENT / DELIVERABLE QUALITY BAR:
+- If the boss asks for PDF, DOCX, HTML, TXT, a worksheet, question paper, report, or any downloadable deliverable, call create_artifact in this turn. It sends the real file to Telegram; prose alone is never a substitute.
+- Infer the requested format from the wording. When it is genuinely ambiguous, choose DOCX for editable Sinhala text, HTML for a designed web page, and PDF for a finished printable English document; explain that choice briefly after the real file is delivered.
+- Preserve hard requirements exactly. In particular, if asked for N questions, pass expected_item_count:N. The tool rejects an incorrect count, so repair the content and call it again rather than delivering 4 questions when 50 were requested.
+- Make documents visually useful: include a title, clear sections, spacing, and an accent_color. Use HTML content when tables, colours, cards, or richer layout are requested. Do not invent a download link; only the create_artifact result plus Telegram attachment proves delivery.
 `;
 
 const CHAT_TOOLS = [
@@ -3918,8 +3928,24 @@ const CHAT_TOOLS = [
         },
       },
       {
+        name: "create_artifact",
+        description: "Create a real downloadable HTML, DOCX, PDF, or TXT file and send it to the active Telegram chat. Use for any requested document/deliverable. Set expected_item_count whenever the user specifies an exact number of numbered questions/items; the tool rejects a wrong count instead of sending an incomplete file.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            format: { type: "STRING", enum: ["html", "docx", "pdf", "txt"], description: "Output format. Prefer docx for editable Unicode/Sinhala documents, html for rich colour/layout, pdf for finished printable English documents." },
+            title: { type: "STRING", description: "Document title." },
+            content: { type: "STRING", description: "Complete document body. Plain text is styled automatically; use full/partial HTML for rich layouts." },
+            file_name: { type: "STRING", description: "Optional output filename without a path." },
+            accent_color: { type: "STRING", description: "CSS hex accent colour, e.g. #2563EB." },
+            expected_item_count: { type: "INTEGER", description: "Exact count of numbered items required, if any. The call fails if the content does not contain exactly this many numbered lines." },
+          },
+          required: ["format", "title", "content"],
+        },
+      },
+      {
         name: "sandbox_run",
-        description: "Self-testing sandbox terminal. Write candidate code files into an isolated throwaway directory and run a command against them (defaults to `node --check` on the first .js file). Use this to TEST code you're about to ship BEFORE calling edit_own_code/insert_own_code: write it here, run it, read stdout/stderr/exit_code, and if it's buggy fix and re-run until it passes. Runs unattended (no confirmation) so you can iterate in the background. Confined to the sandbox dir; only works if AGENT_ENABLE_SANDBOX=true.",
+        description: "Self-testing terminal, enabled by default. Write candidate code files into its throwaway working directory and run a command against them (defaults to `node --check` on the first .js file). Use this to TEST code you're about to ship BEFORE calling edit_own_code/insert_own_code: write it here, run it, read stdout/stderr/exit_code, and if it's buggy fix and re-run until it passes. Runs unattended (no confirmation). Set AGENT_ENABLE_SANDBOX=false only to explicitly disable it.",
         parameters: {
           type: "OBJECT",
           properties: {
@@ -4063,6 +4089,7 @@ const HUMAN_TOOL_LABELS = {
   schedule_reminder: "reminder එක schedule කරනවා",
   run_shell_command: "shell command එක run කරනවා",
   sandbox_run: "sandbox එකේ code එක test කරනවා",
+  create_artifact: "ඔයාට ඕන file එක හදලා එවනවා",
 };
 function summarizeArgs(args) {
   try {
@@ -5050,6 +5077,16 @@ async function runToolDirectly(name, args) {
   if (name === "update_own_code") return await writeOwnCode(args.new_content || "", args.commit_message);
   if (name === "run_shell_command") return await runShellCommand(args.command);
   if (name === "sandbox_run") return await sandbox.sandboxRun({ files: args.files, command: args.command });
+  if (name === "create_artifact") {
+    const artifact = createArtifact(args);
+    if (!artifact.ok) return artifact;
+    try {
+      await bot.sendDocument(CHAT_ID, artifact.path);
+      return { ...artifact, delivered: true };
+    } catch (e) {
+      return { ...artifact, delivered: false, error: `File was generated but Telegram delivery failed: ${e.message}` };
+    }
+  }
   // (NEW) custom tools the agent wrote for itself at runtime
   if (customToolRegistry[name]) return await runCustomTool(name, args);
   if (mcpToolRegistry[name]) return await callMcpTool(name, args);
@@ -5417,7 +5454,7 @@ ${JSON.stringify({
     }
     async function renderStatus() {
       const shown = statusLines.slice(-14); // keep the message from growing forever
-      const header = statusDone ? `✅ වැඩේ ඉවරයි!` : `⚙️ මන් දැන් වැඩේ කරගෙන යනවා බොස්...`;
+      const header = statusDone ? `✅ මේ reply එකේ process එක ඉවරයි` : `⚙️ මන් දැන් වැඩේ කරගෙන යනවා බොස්...`;
       const text = `${header}\n` + shown.join("\n");
       try {
         if (statusMsgId === null) {
@@ -5430,6 +5467,14 @@ ${JSON.stringify({
         // Edits can fail (identical text, rate limit, etc.) — never let a
         // status-message hiccup break the actual tool-execution flow.
       }
+    }
+
+    // Show that the request has been received before the first model call.
+    // Previously the status message was created only after a tool call, so a
+    // slow Gemini response looked exactly like the bot had frozen.
+    if (hasActionIntent(userText)) {
+      statusLines.push("▫️ ඔයාගේ වැඩේ තේරුම් අරගෙන අවශ්‍ය steps හදනවා...");
+      await renderStatus();
     }
 
     // (NEW) Real download/result links pulled straight from tool results

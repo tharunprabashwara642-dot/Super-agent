@@ -70,12 +70,18 @@ function getBaseUrl() {
   return raw.replace(/\/+$/, ""); // strip trailing slash(es)
 }
 
+function geminiKeys() {
+  return (process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || "").split(",").map((k) => k.trim()).filter(Boolean);
+}
+
 let apiKeys = parseKeys();
 let cursor = 0;
 let usageCallback = null;
 
 function keyCount() {
-  return apiKeys.length;
+  // Native Gemini keys are a first-class brain route too. Reporting only the
+  // OpenAI-compatible pool made a valid Gemini-only deployment look broken.
+  return geminiKeys().length || apiKeys.length;
 }
 
 function setUsageCallback(fn) {
@@ -96,6 +102,10 @@ const EFFORT = () =>
   (process.env.OPENAI_COMPAT_EFFORT || process.env.ANTHROPIC_EFFORT || "medium").toLowerCase();
 const MAX_TOKENS = () =>
   parseInt(process.env.OPENAI_COMPAT_MAX_TOKENS || process.env.ANTHROPIC_MAX_TOKENS || "16000", 10);
+
+function geminiModel(modelOverride) {
+  return String(modelOverride || process.env.GEMINI_TEXT_MODEL || process.env.GEMINI_MODEL || "gemini-2.5-flash-lite").replace(/^models\//, "");
+}
 
 // ------------------------------------------------------------
 // Gemini-shaped schema (OBJECT/STRING/...) -> plain JSON Schema.
@@ -245,8 +255,35 @@ function toGeminiParts(message) {
 }
 
 async function chatShimmed(contents, systemInstruction, tools, modelOverride, timeoutMs = 60000) {
+  // Gemini uses the same contents/functionDeclarations shape used by the
+  // rest of this project. A real GEMINI_API_KEY always uses Gemini's native
+  // route, even if an old OpenAI-compatible base URL remains configured.
+  const nativeGeminiKeys = geminiKeys();
+  if (nativeGeminiKeys.length) {
+    const key = nativeGeminiKeys[cursor++ % nativeGeminiKeys.length];
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const payload = {
+        contents,
+        generationConfig: { maxOutputTokens: timeoutMs >= 120000 ? 32000 : MAX_TOKENS() },
+      };
+      if (systemInstruction) payload.systemInstruction = { parts: [{ text: systemInstruction }] };
+      if (tools && tools.length) payload.tools = tools;
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(geminiModel(modelOverride))}:generateContent?key=${encodeURIComponent(key)}`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: controller.signal,
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) return { error: { message: data?.error?.message || `Gemini HTTP ${response.status}` } };
+      if (typeof usageCallback === "function") { try { usageCallback(); } catch (_) {} }
+      if (!data?.candidates?.[0]?.content) return { error: { message: data?.promptFeedback?.blockReason || "Malformed Gemini response — no candidate content." } };
+      return { candidates: [{ content: data.candidates[0].content }] };
+    } catch (e) {
+      return { error: { message: e.name === "AbortError" ? `Gemini request timed out after ${timeoutMs}ms.` : `Gemini request failed: ${e.message}` } };
+    } finally { clearTimeout(timer); }
+  }
   if (apiKeys.length === 0) {
-    return { error: { message: "No API key configured. Set OPENAI_COMPAT_API_KEY (or ANTHROPIC_API_KEY) in the environment variables." } };
+    return { error: { message: "No API key configured. Set GEMINI_API_KEY, OPENAI_COMPAT_API_KEY, or ANTHROPIC_API_KEY in the environment variables." } };
   }
 
   const baseUrl = getBaseUrl();
