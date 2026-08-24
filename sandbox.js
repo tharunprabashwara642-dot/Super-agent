@@ -5,7 +5,11 @@ const fs = require("fs");
 const path = require("path");
 const { exec } = require("child_process");
 
-const ENABLED = () => process.env.AGENT_ENABLE_SANDBOX === "true";
+// The self-testing terminal is part of the bot's normal execution path, not
+// an optional feature which silently disappears on a fresh deployment.  Keep
+// it enabled by default; an operator can explicitly disable it with
+// AGENT_ENABLE_SANDBOX=false if a host has a stricter policy.
+const ENABLED = () => process.env.AGENT_ENABLE_SANDBOX !== "false";
 const SANDBOX_DIR = path.resolve(process.env.SANDBOX_DIR || path.join(process.cwd(), "agent_sandbox"));
 const TIMEOUT_MS = () => parseInt(process.env.SANDBOX_TIMEOUT_MS || "30000", 10);
 
@@ -88,7 +92,7 @@ async function sandboxRun({ files, command, timeoutMs } = {}) {
   if (!ENABLED()) {
     return {
       error: true,
-      message: "Sandbox is disabled. Set AGENT_ENABLE_SANDBOX=true in the environment variables and restart to enable the self-testing sandbox terminal.",
+      message: "Sandbox is explicitly disabled by AGENT_ENABLE_SANDBOX=false.",
     };
   }
   try {
