@@ -94,5 +94,98 @@ async function __runCustomToolImpl(name, args) {`;
   }
 }
 
+// Goal cancellation hardening.
+// The old cancel_all_goals() changed the DB status and added an in-memory
+// cancellation flag, but an already-running runGoalStep() could finish and
+// then mark its step done + send a "step done" message anyway. It also left
+// queued confirmations alive. Patch both sides so cancellation is a real
+// stop boundary: no post-cancel step completion, no stale confirmation, and
+// no later maybeCompleteGoal() call for a cancelled goal.
+const goalCancelMarker='// GOAL_CANCEL_HARDENING_V1';
+if (!s.includes(goalCancelMarker)) {
+  const oldCancel=`async function cancelAllGoals() {
+  const { data, error } = await supabase
+    .from("goals")
+    .update({ status: "cancelled" })
+    .eq("status", "active")
+    .select("id");
+  if (error) return { cancelled: 0, reason: error.message };
+  // Also drop it from the in-memory "currently running" tracker so
+  // autonomousTick's kickOffGoal no-op guard doesn't block a legitimate
+  // fresh goal with the same title later, and so any in-flight tick for
+  // one of these goals doesn't keep posting updates for a cancelled task.
+  for (const g of data || []) {
+    cancelledGoalIds.add(g.id);
+    trackedActiveGoals.delete(g.id);
+  }
+  return { cancelled: (data || []).length };
+}`;
+  const newCancel=`${goalCancelMarker}
+async function cancelAllGoals() {
+  const { data, error } = await supabase
+    .from("goals")
+    .update({ status: "cancelled" })
+    .eq("status", "active")
+    .select("id");
+  if (error) return { cancelled: 0, reason: error.message };
+
+  const cancelledIds = new Set((data || []).map((g) => g.id));
+
+  // Make the stop visible to every in-flight goal loop immediately.
+  for (const id of cancelledIds) {
+    cancelledGoalIds.add(id);
+    trackedActiveGoals.delete(id);
+  }
+
+  // Pending/awaiting steps belonging to cancelled goals must never be
+  // resumed by the 60s stalled-goal safety net.
+  if (cancelledIds.size > 0) {
+    await supabase
+      .from("goal_steps")
+      .update({ status: "cancelled" })
+      .in("goal_id", Array.from(cancelledIds))
+      .in("status", ["pending", "awaiting_approval"]);
+
+    // Drop any Telegram confirmation that was waiting for one of these
+    // goals. Otherwise a late button tap could resurrect a cancelled step.
+    if (Array.isArray(pendingConfirmations)) {
+      pendingConfirmations = pendingConfirmations.filter((pc) => {
+        if (pc.goalId && cancelledIds.has(pc.goalId)) return false;
+        return true;
+      });
+    }
+  }
+
+  return { cancelled: cancelledIds.size, background_stopped: true };
+}`;
+  if (!s.includes(oldCancel)) throw new Error('cancelAllGoals marker not found');
+  s=s.replace(oldCancel,newCancel);
+
+  const oldAfterStep=`      const result = await runGoalStep({ id: goalId, title }, nextStep);
+
+      if (result.needsConfirmation) {`;
+  const newAfterStep=`      const result = await runGoalStep({ id: goalId, title }, nextStep);
+
+      // A cancellation may arrive while the current tool is still running.
+      // Never commit that in-flight result as "done" after the user stopped
+      // the goal. The running tool is allowed to finish its current atomic
+      // call, then this boundary drops the result and exits cleanly.
+      const { data: goalStateAfterStep } = await supabase
+        .from("goals")
+        .select("status")
+        .eq("id", goalId)
+        .maybeSingle();
+      if (cancelledGoalIds.has(goalId) || goalStateAfterStep?.status === "cancelled") {
+        cancelledGoalIds.delete(goalId);
+        return;
+      }
+
+      if (result.needsConfirmation) {`;
+  if (!s.includes(oldAfterStep)) throw new Error('runGoalAutonomously post-step marker not found');
+  s=s.replace(oldAfterStep,newAfterStep);
+
+  console.log('🛑 Goal cancellation hardening applied');
+}
+
 fs.writeFileSync(file,s);
 console.log('✅ boot patch complete');
