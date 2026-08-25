@@ -1,9 +1,14 @@
 {
   "name": "night-agent-tasks-bot",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "description": "Autonomous personal agent with tool execution, skills, verification and bounded retries",
   "main": "index.js",
   "scripts": {
-    "start": "node boot_patch.js && node -r ./task_scope_guard.js -r ./agent_runtime_guard.js -r ./artifact_delivery_guard.js index.js"
+    "start": "node boot_patch.js && node -r ./health_server.js -r ./task_scope_guard.js -r ./agent_runtime_guard.js -r ./artifact_delivery_guard.js index.js",
+    "check": "node --check index.js && node --check agent_runtime_guard.js && node --check execution_guard.js && node --check health_server.js"
+  },
+  "engines": {
+    "node": ">=20 <25"
   },
   "dependencies": {
     "node-telegram-bot-api": "^0.66.0",
