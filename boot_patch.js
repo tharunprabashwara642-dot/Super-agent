@@ -57,11 +57,11 @@ const guardMarker='// AGENT_RUNTIME_GUARD_V1';
 if (!s.includes(guardMarker)) {
   const marker='async function runCustomTool(name, args) {';
   const replacement=`// AGENT_RUNTIME_GUARD_V1
-const { createAgentRuntimeGuard } = require("./agent_runtime_guard");
-const agentRuntimeGuard = createAgentRuntimeGuard();
+const { ExecutionGuard } = require("./execution_guard");
+const agentExecutionGuard = new ExecutionGuard();
 
 async function runCustomTool(name, args) {
-  return agentRuntimeGuard.run({ tool: name }, async () => {
+  return agentExecutionGuard.run(name, async () => {
     return await __runCustomToolImpl(name, args);
   });
 }
