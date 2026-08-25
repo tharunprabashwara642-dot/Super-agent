@@ -5,7 +5,7 @@
   "main": "index.js",
   "packageManager": "npm@10.8.2",
   "scripts": {
-    "start": "node boot_patch.js && node -r ./health_server.js -r ./task_scope_guard.js -r ./agent_runtime_guard.js -r ./artifact_delivery_guard.js index.js",
+    "start": "node boot_patch.js && node index.js",
     "check": "node --check index.js && node --check agent_runtime_guard.js && node --check execution_guard.js && node --check health_server.js"
   },
   "engines": {
