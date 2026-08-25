@@ -67,22 +67,25 @@ TelegramBot.prototype.on = function(event, handler) {
   return originalOn.call(this, event, wrapped);
 };
 
-// Stop an identical consecutive tool call from becoming an infinite loop.
+// Stop an identical consecutive tool call only when the model is responding
+// to a tool result in the same loop. This avoids breaking legitimate repeated
+// tool calls made by separate user messages.
 try {
   const brain = require("./gemini_brain");
   const originalChat = brain.chatShimmed;
-  let lastSignature = null;
-  let repeatCount = 0;
+  let lastToolSignature = null;
   brain.chatShimmed = async (...args) => {
+    const contents = Array.isArray(args[0]) ? args[0] : [];
+    const last = contents[contents.length - 1];
+    const isToolResultTurn = last?.role === "user" && Array.isArray(last.parts) && last.parts.some((p) => p.functionResponse);
     const result = await originalChat(...args);
     const calls = result?.candidates?.[0]?.content?.parts?.filter((p) => p.functionCall)?.map((p) => p.functionCall) || [];
     const sig = calls.length ? JSON.stringify(calls.map((c) => ({ name: c.name, args: c.args || {} }))) : null;
-    if (sig && sig === lastSignature) repeatCount++; else repeatCount = 0;
-    lastSignature = sig;
-    if (repeatCount >= 1) {
-      repeatCount = 0;
+    if (isToolResultTurn && sig && sig === lastToolSignature) {
+      lastToolSignature = null;
       return { candidates: [{ content: { parts: [{ text: "I stopped this repeated tool call to prevent an infinite loop. The previous tool result was already returned; use a different next action or report the blocker." }] } }] };
     }
+    lastToolSignature = isToolResultTurn ? sig : null;
     return result;
   };
 } catch (e) {
