@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node -r ./agent_runtime_guard.js index.js"
+    "start": "node -r ./agent_runtime_guard.js -r ./artifact_delivery_guard.js index.js"
   },
   "dependencies": {
     "node-telegram-bot-api": "^0.66.0",
