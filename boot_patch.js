@@ -13,9 +13,6 @@ if (!s.includes('Native document pipeline: generate_document')) {
 }
 
 // ToolJet MCP integration patch
-// ToolJet officially exposes an MCP server as @tooljet/mcp. The main agent
-// already has a generic MCP loader, so we only need to add ToolJet as another
-// stdio MCP server. It is enabled only when both credentials are configured.
 const tooljetMarker='// TOOLJET_MCP_PATCH_V1';
 if (!s.includes(tooljetMarker)) {
   const mcpMarker='const MCP_SERVER_CONFIGS = [';
@@ -37,13 +34,7 @@ if (!s.includes(tooljetMarker)) {
   console.log('🔌 ToolJet MCP patch applied');
 }
 
-// Local skill runtime patch
-// Skills are loaded lazily from ./skills/*/SKILL.md. Only skills whose
-// keywords match the current user/task text are injected into the model
-// context. This keeps prompts small and prevents unrelated skills from
-// confusing the agent. The patch is intentionally placed at the single
-// nvidiaChatShimmed gateway so normal chat and autonomous goal steps both
-// receive the same skill routing.
+// Lazy skill routing
 const skillMarker='// SKILL_RUNTIME_PATCH_V1';
 if (!s.includes(skillMarker)) {
   const brainMarker='async function nvidiaChatShimmed(contents, systemInstruction, tools, modelOverride, timeoutMs) {';
@@ -59,6 +50,27 @@ async function nvidiaChatShimmed(contents, systemInstruction, tools, modelOverri
   if (!s.includes(oldCall)) throw new Error('brain.chatShimmed call marker not found');
   s=s.replace(oldCall,newCall);
   console.log('🧠 Lazy skill routing patch applied');
+}
+
+// Production execution guard
+const guardMarker='// AGENT_RUNTIME_GUARD_V1';
+if (!s.includes(guardMarker)) {
+  const marker='async function runCustomTool(name, args) {';
+  const replacement=`// AGENT_RUNTIME_GUARD_V1
+const { createAgentRuntimeGuard } = require("./agent_runtime_guard");
+const agentRuntimeGuard = createAgentRuntimeGuard();
+
+async function runCustomTool(name, args) {
+  return agentRuntimeGuard.run({ tool: name }, async () => {
+    return await __runCustomToolImpl(name, args);
+  });
+}
+
+async function __runCustomToolImpl(name, args) {`;
+  if (s.includes(marker) && !s.includes('async function __runCustomToolImpl')) {
+    s=s.replace(marker,replacement);
+    console.log('🛡️ Agent execution guard applied');
+  }
 }
 
 fs.writeFileSync(file,s);
