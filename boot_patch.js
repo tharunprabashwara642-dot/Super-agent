@@ -52,7 +52,9 @@ async function nvidiaChatShimmed(contents, systemInstruction, tools, modelOverri
   console.log('🧠 Lazy skill routing patch applied');
 }
 
-// Production execution guard
+// Production execution guard. It is deliberately attached to custom-tool
+// execution because this function is the single registry boundary used by
+// generated/runtime tools. The guard is argument-aware and time-windowed.
 const guardMarker='// AGENT_RUNTIME_GUARD_V1';
 if (!s.includes(guardMarker)) {
   const marker='async function runCustomTool(name, args) {';
@@ -63,7 +65,7 @@ const agentExecutionGuard = new ExecutionGuard();
 async function runCustomTool(name, args) {
   return agentExecutionGuard.run(name, async () => {
     return await __runCustomToolImpl(name, args);
-  });
+  }, args);
 }
 
 async function __runCustomToolImpl(name, args) {`;
@@ -73,4 +75,7 @@ async function __runCustomToolImpl(name, args) {`;
   }
 }
 
+// Fail-soft startup: a previous deploy can leave a partially patched source
+// file. Do not silently continue with a half-applied patch.
 fs.writeFileSync(file,s);
+console.log('✅ boot patch complete');
