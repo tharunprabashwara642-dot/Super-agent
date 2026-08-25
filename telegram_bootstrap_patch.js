@@ -1,6 +1,12 @@
-// Telegram callback reliability bootstrap.
-// Loaded before index.js so it can harden node-telegram-bot-api before the
-// application registers its handlers.
+// Telegram reliability bootstrap.
+// Loaded before index.js so Telegram message de-duplication is installed
+// before the application registers its handlers.
+//
+// IMPORTANT: do NOT intercept/ack callback_query here. The application owns
+// the confirmation lifecycle and must be the single place that acknowledges
+// and executes a confirmation. Double-answering a callback query can make
+// Telegram report the callback as already answered and makes debugging the
+// real confirmation handler unnecessarily confusing.
 const TelegramBot = require('node-telegram-bot-api');
 
 if (!TelegramBot.__nightAgentReliabilityPatch) {
@@ -11,8 +17,8 @@ if (!TelegramBot.__nightAgentReliabilityPatch) {
     if (event === 'message' && typeof listener === 'function') {
       const wrapped = async (msg) => {
         // Telegram message_id is monotonic within a chat. Ignore an already
-        // processed update in this process so reconnect/retry delivery cannot
-        // execute the same user request twice.
+        // processed message so polling reconnects/retries cannot execute the
+        // same user request twice.
         const chatId = String(msg?.chat?.id ?? '');
         const messageId = Number(msg?.message_id);
         if (chatId && Number.isFinite(messageId)) {
@@ -32,22 +38,9 @@ if (!TelegramBot.__nightAgentReliabilityPatch) {
       return originalOn.call(this, event, wrapped);
     }
 
-    if (event === 'callback_query' && typeof listener === 'function') {
-      const wrapped = async (query) => {
-        // Telegram keeps the inline-button spinner active until the callback
-        // is acknowledged. Do that FIRST, before Supabase/model/tool work.
-        try {
-          if (query?.id) {
-            await this.answerCallbackQuery(query.id, { text: 'කරගෙන යනවා...' });
-          }
-        } catch (e) {
-          console.error('callback acknowledgement failed:', e.message);
-        }
-        return listener.call(this, query);
-      };
-      return originalOn.call(this, event, wrapped);
-    }
-
+    // Leave callback_query completely untouched. The real handler in
+    // index.js calls answerCallbackQuery immediately, resolves the queued
+    // confirmation, edits the button message, and resumes any blocked goal.
     return originalOn.call(this, event, listener);
   };
 
