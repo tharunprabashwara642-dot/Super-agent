@@ -37,4 +37,28 @@ if (!s.includes(tooljetMarker)) {
   console.log('🔌 ToolJet MCP patch applied');
 }
 
+// Local skill runtime patch
+// Skills are loaded lazily from ./skills/*/SKILL.md. Only skills whose
+// keywords match the current user/task text are injected into the model
+// context. This keeps prompts small and prevents unrelated skills from
+// confusing the agent. The patch is intentionally placed at the single
+// nvidiaChatShimmed gateway so normal chat and autonomous goal steps both
+// receive the same skill routing.
+const skillMarker='// SKILL_RUNTIME_PATCH_V1';
+if (!s.includes(skillMarker)) {
+  const brainMarker='async function nvidiaChatShimmed(contents, systemInstruction, tools, modelOverride, timeoutMs) {';
+  const brainReplacement=`// SKILL_RUNTIME_PATCH_V1
+const skillRuntime = require("./skill_runtime");
+
+async function nvidiaChatShimmed(contents, systemInstruction, tools, modelOverride, timeoutMs) {
+  const enrichedSystemInstruction = skillRuntime.augmentSystemInstruction(systemInstruction, contents);`;
+  if (!s.includes(brainMarker)) throw new Error('nvidiaChatShimmed marker not found');
+  s=s.replace(brainMarker,brainReplacement);
+  const oldCall='return brain.chatShimmed(contents, systemInstruction, tools, modelOverride, timeoutMs);';
+  const newCall='return brain.chatShimmed(contents, enrichedSystemInstruction, tools, modelOverride, timeoutMs);';
+  if (!s.includes(oldCall)) throw new Error('brain.chatShimmed call marker not found');
+  s=s.replace(oldCall,newCall);
+  console.log('🧠 Lazy skill routing patch applied');
+}
+
 fs.writeFileSync(file,s);
