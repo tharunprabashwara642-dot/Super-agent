@@ -3,13 +3,15 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "node -r ./agent_runtime_guard.js -r ./artifact_delivery_guard.js index.js"
+    "start": "node boot_patch.js && node -r ./agent_runtime_guard.js -r ./artifact_delivery_guard.js index.js"
   },
   "dependencies": {
     "node-telegram-bot-api": "^0.66.0",
     "@supabase/supabase-js": "^2.45.0",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@google/genai": "^2.4.0",
+    "pdfkit": "^0.17.2",
+    "@fontsource/noto-sans-sinhala": "^5.2.5",
     "ws": "^8.18.0"
   }
 }
