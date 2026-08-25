@@ -15,33 +15,21 @@ if (s.includes(MARKER)) {
   process.exit(0);
 }
 
-// 1) Remember the actual Telegram message containing the buttons. This lets
-// the text fallback target the same message when we synthesize a callback.
 const sendBlock = `      await bot.sendMessage(CHAT_ID, pc.description, {\n        reply_markup: {\n          inline_keyboard: [[\n            { text: "✅ ඔව්", callback_data: \`confirm:\${pc.id}\` },\n            { text: "❌ එපා", callback_data: \`cancel:\${pc.id}\` },\n          ]],\n        },\n      });`;
 const sendReplacement = `      const confirmationMessage = await bot.sendMessage(CHAT_ID, pc.description, {\n        reply_markup: {\n          inline_keyboard: [[\n            { text: "✅ ඔව්", callback_data: \`confirm:\${pc.id}\` },\n            { text: "❌ එපා", callback_data: \`cancel:\${pc.id}\` },\n          ]],\n        },\n      });\n      pc.messageId = confirmationMessage?.message_id || null;`;
 if (!s.includes(sendBlock)) throw new Error("confirmation send block not found");
 s = s.replace(sendBlock, sendReplacement);
 
-// 2) Log every callback at the application boundary. Do not answer it here:
-// index.js remains the single owner of answerCallbackQuery + action execution.
 const callbackMarker = `bot.on("callback_query", async (query) => {\n  if (!query.message || String(query.message.chat.id) !== String(CHAT_ID)) return;`;
 const callbackReplacement = `bot.on("callback_query", async (query) => {\n  console.log("🔘 Telegram callback received", JSON.stringify({ id: query?.id, data: query?.data, chat_id: query?.message?.chat?.id }));\n  if (!query.message || String(query.message.chat.id) !== String(CHAT_ID)) {\n    console.warn("⚠️ Ignoring callback from unexpected chat or inline context");\n    return;\n  }`;
 if (!s.includes(callbackMarker)) throw new Error("callback handler marker not found");
 s = s.replace(callbackMarker, callbackReplacement);
 
-// 3) Make the confirmation visibly enter a running state BEFORE the actual
-// tool call. If the tool takes a while (OAuth/API/network), the user no longer
-// sees a dead button with no feedback. The original promise is still awaited;
-// this is UI feedback, not a fake success/failure timeout.
 const toolLine = `        result = await runToolDirectly(pc.toolName, pc.args);`;
-const toolReplacement = `        await bot.editMessageText(\n          \`⏳ ${pc.description}\\n🔄 Action received — executing now...\`,\n          { chat_id: CHAT_ID, message_id: query.message.message_id }\n        ).catch(() => {});\n        const startedAt = Date.now();\n        const toolPromise = runToolDirectly(pc.toolName, pc.args);\n        const slowNotice = setTimeout(() => {\n          bot.editMessageText(\n            \`⏳ ${pc.description}\\n🔄 Still working... (${Math.round((Date.now() - startedAt) / 1000)}s)\`,\n            { chat_id: CHAT_ID, message_id: query.message.message_id }\n          ).catch(() => {});\n        }, 8000);\n        try {\n          result = await toolPromise;\n        } finally {\n          clearTimeout(slowNotice);\n        }`;
+const toolReplacement = `        await bot.editMessageText(\n          \`⏳ \${pc.description}\\n🔄 Action received — executing now...\`,\n          { chat_id: CHAT_ID, message_id: query.message.message_id }\n        ).catch(() => {});\n        const startedAt = Date.now();\n        const toolPromise = runToolDirectly(pc.toolName, pc.args);\n        const slowNotice = setTimeout(() => {\n          bot.editMessageText(\n            \`⏳ \${pc.description}\\n🔄 Still working... (\${Math.round((Date.now() - startedAt) / 1000)}s)\`,\n            { chat_id: CHAT_ID, message_id: query.message.message_id }\n          ).catch(() => {});\n        }, 8000);\n        try {\n          result = await toolPromise;\n        } finally {\n          clearTimeout(slowNotice);\n        }`;
 if (!s.includes(toolLine)) throw new Error("confirmation tool execution line not found");
 s = s.replace(toolLine, toolReplacement);
 
-// 4) Text fallback. If inline callback delivery is ever unavailable, the user
-// can reply `confirm`, `yes`, `ඔව්`, `ok` or `cancel`, `no`, `එපා`. We reuse the
-// exact existing callback handler so there is only ONE execution path and no
-// duplicated business logic.
 const waitingMarker = `    try {\n    const { data: waiting } = await supabase\n      .from("goal_steps")`;
 const waitingReplacement = `    // TELEGRAM_CONFIRMATION_HARDENING_V2\n    // Reliable text fallback for confirmation. Only consumes the newest\n    // pending confirmation and routes it through the exact same callback\n    // handler as an inline-button tap.\n    if (pendingConfirmations.length > 0) {\n      const confirmWords = new Set(["confirm", "yes", "y", "ok", "okay", "ඔව්", "හරි", "හරිම"]);\n      const cancelWords = new Set(["cancel", "no", "n", "නෑ", "එපා", "අවශ්‍ය නෑ"]);\n      const newest = pendingConfirmations.find((pc) => pc.buttonsSent) || pendingConfirmations[0];\n      if (confirmWords.has(lower) || cancelWords.has(lower)) {\n        const action = confirmWords.has(lower) ? "confirm" : "cancel";\n        console.log(\`📝 Text confirmation fallback: \${action}:\${newest.id}\`);\n        bot.emit("callback_query", {\n          id: \`text-fallback-\${Date.now()}-\${newest.id}\`,\n          data: \`\${action}:\${newest.id}\`,\n          from: msg.from,\n          message: {\n            chat: { id: CHAT_ID },\n            message_id: newest.messageId || msg.message_id,\n          },\n        });\n        return;\n      }\n    }\n\n    try {\n    const { data: waiting } = await supabase\n      .from("goal_steps")`;
 if (!s.includes(waitingMarker)) throw new Error("message-handler insertion marker not found");
