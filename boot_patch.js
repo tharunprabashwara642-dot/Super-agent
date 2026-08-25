@@ -52,6 +52,25 @@ async function nvidiaChatShimmed(contents, systemInstruction, tools, modelOverri
   console.log('🧠 Lazy skill routing patch applied');
 }
 
+// Claude-Code-style bounded orchestration policy. Injected at the model
+// boundary so every task follows inspect -> plan -> execute -> verify ->
+// repair -> complete without a risky rewrite of the large legacy loop.
+const orchestrationMarker='// CLAUDE_CODE_ORCHESTRATOR_V1';
+if (!s.includes(orchestrationMarker)) {
+  const importMarker='// SKILL_RUNTIME_PATCH_V1';
+  const orchestrationImport=`// CLAUDE_CODE_ORCHESTRATOR_V1
+const agentOrchestrator = require("./agent_orchestrator");
+`;
+  if (!s.includes(importMarker)) throw new Error('skill runtime marker not found');
+  s=s.replace(importMarker,importMarker+'\n'+orchestrationImport);
+
+  const skillLine='const enrichedSystemInstruction = skillRuntime.augmentSystemInstruction(systemInstruction, contents);';
+  const orchestrationLine='const enrichedSystemInstruction = agentOrchestrator.augment(skillRuntime.augmentSystemInstruction(systemInstruction, contents));';
+  if (!s.includes(skillLine)) throw new Error('enriched system instruction marker not found');
+  s=s.replace(skillLine,orchestrationLine);
+  console.log('🧠 Claude-Code-style orchestration policy applied');
+}
+
 // Production execution guard. It is deliberately attached to custom-tool
 // execution because this function is the single registry boundary used by
 // generated/runtime tools. The guard is argument-aware and time-windowed.
@@ -75,7 +94,5 @@ async function __runCustomToolImpl(name, args) {`;
   }
 }
 
-// Fail-soft startup: a previous deploy can leave a partially patched source
-// file. Do not silently continue with a half-applied patch.
 fs.writeFileSync(file,s);
 console.log('✅ boot patch complete');
