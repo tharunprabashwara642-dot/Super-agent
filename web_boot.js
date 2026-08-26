@@ -5,6 +5,13 @@ const fs = require("fs");
 const Module = require("module");
 const path = require("path");
 
+// IMPORTANT: telegram_bootstrap_patch.js must run in THIS Node process.
+// Running it as a separate `node telegram_bootstrap_patch.js` process only
+// patches that process's TelegramBot prototype and has no effect on index.js.
+// Loading it here makes allowed_updates + message de-duplication effective
+// for the real bot instance created when index.js is compiled below.
+require("./telegram_bootstrap_patch.js");
+
 const entry = path.join(__dirname, "index.js");
 const source = fs.readFileSync(entry, "utf8");
 const exportHook = `\n;global.__nightAgentWeb = {\n  httpServer,\n  handleChatMessage,\n  fetchRecentConversation,\n  logBotMessage,\n  pendingConfirmations,\n  applyDetectedCredentials,\n  runToolDirectly,\n  cancelAllGoals,\n};\n`;
