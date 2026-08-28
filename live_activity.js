@@ -1,13 +1,13 @@
-const TelegramBot = require('node-telegram-bot-api');
-let bot = null, messageId = null, active = false, startedAt = 0, timer = null;
-const steps = [];
-function getBot(){ if(bot)return bot; bot=new TelegramBot(process.env.TELEGRAM_BOT_TOKEN,{polling:false}); return bot; }
-function cid(){ const id=process.env.NIGHT_AGENT_CHAT_ID; if(!id) throw new Error('NIGHT_AGENT_CHAT_ID is not configured'); return id; }
-function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
-function render(done=false){const elapsed=startedAt?`${Math.max(1,Math.round((Date.now()-startedAt)/1000))}s`:'';return `${done?'🤖 <b>Task completed</b>':'🤖 <b>Working...</b>'}${elapsed?` <code>${elapsed}</code>`:''}\n\n${steps.slice(-14).map(x=>`${x.icon} ${esc(x.text)}`).join('\n')}`;}
-async function edit(){if(!messageId)return;try{await getBot().editMessageText(render(false),{chat_id:cid(),message_id:messageId,parse_mode:'HTML',disable_web_page_preview:true});}catch(e){if(!/message is not modified/i.test(e.message||''))console.warn('Live activity edit failed:',e.message);}}
-async function start(label='Understanding request'){if(active)return;active=true;startedAt=Date.now();steps.length=0;steps.push({icon:'🧠',text:label});const m=await getBot().sendMessage(cid(),render(false),{parse_mode:'HTML',disable_web_page_preview:true});messageId=m.message_id;timer=setInterval(()=>edit().catch(()=>{}),3500);}
-async function step(label,state='running'){if(!active)await start();steps.push({icon:state==='done'?'✅':state==='error'?'❌':state==='waiting'?'⏳':'🔧',text:label});await edit();}
-async function finish(label='Done'){if(!active)return;steps.push({icon:'✅',text:label});if(timer)clearInterval(timer);timer=null;await getBot().editMessageText(render(true),{chat_id:cid(),message_id:messageId,parse_mode:'HTML'}).catch(()=>{});active=false;messageId=null;}
-async function fail(label='Failed'){if(!active)return;steps.push({icon:'❌',text:label});if(timer)clearInterval(timer);timer=null;await getBot().editMessageText(render(true),{chat_id:cid(),message_id:messageId,parse_mode:'HTML'}).catch(()=>{});active=false;messageId=null;}
+const TelegramBot=require('node-telegram-bot-api');
+let bot=null,messageId=null,active=false,startedAt=0,timer=null;
+const steps=[];
+function getBot(){if(bot)return bot;bot=new TelegramBot(process.env.TELEGRAM_BOT_TOKEN,{polling:false});return bot}
+function cid(){const id=process.env.NIGHT_AGENT_CHAT_ID;if(!id)throw new Error('NIGHT_AGENT_CHAT_ID is not configured');return id}
+function esc(s){return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function render(done=false){const elapsed=startedAt?`${Math.max(1,Math.round((Date.now()-startedAt)/1000))}s`:'';return `${done?'🤖 <b>Task completed</b>':'🤖 <b>Working...</b>'}${elapsed?` <code>${elapsed}</code>`:''}\n\n${steps.slice(-14).map(x=>`${x.icon} ${esc(x.text)}`).join('\n')}`}
+async function edit(){if(!messageId)return;try{await getBot().editMessageText(render(false),{chat_id:cid(),message_id:messageId,parse_mode:'HTML',disable_web_page_preview:true})}catch(e){if(!/message is not modified/i.test(e.message||''))console.warn('Live activity edit failed:',e.message)}}
+async function start(label='Understanding request'){if(active)return;active=true;startedAt=Date.now();steps.length=0;steps.push({icon:'🧠',text:label});const m=await getBot().sendMessage(cid(),render(false),{parse_mode:'HTML',disable_web_page_preview:true});messageId=m.message_id;timer=setInterval(()=>edit().catch(()=>{}),3500)}
+async function step(label,state='running'){if(!active)await start();const icon=state==='done'?'✅':state==='error'?'❌':state==='waiting'?'⏳':'🔧';const last=steps[steps.length-1];if(last&&last.text===String(label)&&last.icon===icon)return;steps.push({icon,text:String(label)});await edit()}
+async function finish(label='Done'){if(!active)return;const last=steps[steps.length-1];if(!last||last.text!==String(label)||last.icon!=='✅')steps.push({icon:'✅',text:String(label)});if(timer)clearInterval(timer);timer=null;await getBot().editMessageText(render(true),{chat_id:cid(),message_id:messageId,parse_mode:'HTML'}).catch(()=>{});active=false;messageId=null}
+async function fail(label='Failed'){if(!active)return;const last=steps[steps.length-1];if(!last||last.text!==String(label)||last.icon!=='❌')steps.push({icon:'❌',text:String(label)});if(timer)clearInterval(timer);timer=null;await getBot().editMessageText(render(true),{chat_id:cid(),message_id:messageId,parse_mode:'HTML'}).catch(()=>{});active=false;messageId=null}
 module.exports={start,step,finish,fail};
