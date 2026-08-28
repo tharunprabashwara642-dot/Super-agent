@@ -1,10 +1,23 @@
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const https = require('https');
 const PDFDocument = require('pdfkit');
 
-// Prefer a real TTF/OTF. PDFKit cannot render Fontsource webfont files reliably.
-const FONT_PACKAGE = path.dirname(require.resolve('@fontsource/noto-sans-sinhala/package.json'));
-function findFont(dir) {
+// Prefer a real TTF/OTF. PDFKit cannot render Fontsource webfont (woff/woff2) files —
+// @fontsource packages only ship woff/woff2, so searching them for .ttf/.otf always
+// fails. Instead we cache one real TTF on disk and download it once if missing.
+const FONT_CACHE_DIR = path.join(os.tmpdir(), 'super-agent-fonts');
+const FONT_CACHE_PATH = path.join(FONT_CACHE_DIR, 'NotoSansSinhala-Regular.ttf');
+// Google serves legacy browsers (e.g. old IE/Android UAs with no woff2 support) a
+// real .ttf instead of .woff2 from this same CSS endpoint - this is the standard
+// trick for getting a plain TTF straight from Google Fonts without guessing a
+// gstatic filename.
+const FONT_CSS_URL = 'https://fonts.googleapis.com/css?family=Noto+Sans+Sinhala';
+const LEGACY_UA = 'Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)';
+
+function findLocalFont(dir) {
+  if (!fs.existsSync(dir)) return null;
   const files = fs.readdirSync(dir, { withFileTypes: true });
   const preferred = [
     ...files.filter(x => x.isFile() && /noto.?sans.?sinhala.*\.ttf$/i.test(x.name)),
@@ -13,13 +26,98 @@ function findFont(dir) {
   if (preferred.length) return path.join(dir, preferred[0].name);
   for (const entry of files) {
     if (entry.isDirectory()) {
-      const found = findFont(path.join(dir, entry.name));
+      const found = findLocalFont(path.join(dir, entry.name));
       if (found) return found;
     }
   }
   return null;
 }
-const FONT_PATH = findFont(FONT_PACKAGE);
+
+function fetchText(url, headers = {}) {
+  return new Promise((resolve, reject) => {
+    https.get(url, { headers }, (res) => {
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        res.resume();
+        return resolve(fetchText(res.headers.location, headers));
+      }
+      if (res.statusCode !== 200) { res.resume(); return reject(new Error(`HTTP ${res.statusCode} for ${url}`)); }
+      let data = '';
+      res.setEncoding('utf8');
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => resolve(data));
+      res.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+function downloadFont(url, destPath, redirects = 5) {
+  return new Promise((resolve, reject) => {
+    https.get(url, (res) => {
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location && redirects > 0) {
+        res.resume();
+        return resolve(downloadFont(res.headers.location, destPath, redirects - 1));
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        return reject(new Error(`Font download failed: HTTP ${res.statusCode}`));
+      }
+      fs.mkdirSync(path.dirname(destPath), { recursive: true });
+      const tmp = destPath + '.part';
+      const file = fs.createWriteStream(tmp);
+      res.pipe(file);
+      file.on('finish', () => {
+        file.close((err) => {
+          if (err) return reject(err);
+          try {
+            const stat = fs.statSync(tmp);
+            if (stat.size < 10000) { fs.unlinkSync(tmp); return reject(new Error('Downloaded font file looked too small/corrupt')); }
+            fs.renameSync(tmp, destPath);
+            resolve(destPath);
+          } catch (e) { reject(e); }
+        });
+      });
+      file.on('error', reject);
+    }).on('error', reject);
+  });
+}
+
+async function resolveFontUrlFromCss() {
+  // Request the CSS with an old-browser UA so Google's font server replies with a
+  // real .ttf url() instead of .woff2 - avoids guessing gstatic filenames.
+  const css = await fetchText(FONT_CSS_URL, { 'User-Agent': LEGACY_UA });
+  const match = css.match(/url\((https:\/\/fonts\.gstatic\.com\/[^)]+\.ttf)\)/i);
+  if (!match) throw new Error('Could not find a .ttf URL in Google Fonts CSS response');
+  return match[1];
+}
+
+// Try a couple of known-good npm package locations first (in case one is installed
+// and does ship a real ttf/otf), then fall back to a cached/downloaded copy.
+function findBundledFont() {
+  const candidates = [];
+  try { candidates.push(path.dirname(require.resolve('@fontsource/noto-sans-sinhala/package.json'))); } catch (_) {}
+  for (const dir of candidates) {
+    const found = findLocalFont(dir);
+    if (found) return found;
+  }
+  return null;
+}
+
+let fontPathPromise = null;
+async function resolveFontPath() {
+  const bundled = findBundledFont();
+  if (bundled) return bundled;
+  if (fs.existsSync(FONT_CACHE_PATH)) return FONT_CACHE_PATH;
+  if (!fontPathPromise) {
+    fontPathPromise = (async () => {
+      const ttfUrl = await resolveFontUrlFromCss();
+      return downloadFont(ttfUrl, FONT_CACHE_PATH);
+    })().catch((e) => {
+      fontPathPromise = null; // allow retry on next call instead of caching the failure forever
+      throw e;
+    });
+  }
+  return fontPathPromise;
+}
 const MODEL = process.env.GEMINI_TEXT_MODEL || 'gemini-2.5-flash';
 
 function keys() {
@@ -119,6 +217,8 @@ function drawQuestion(doc, q, index) {
   doc.moveDown(0.45);
 }
 
+let FONT_PATH = null;
+
 function makePdf(title, questions) {
   return new Promise((resolve, reject) => {
     if (!FONT_PATH) return reject(new Error('A TTF/OTF Sinhala font could not be found'));
@@ -169,6 +269,7 @@ async function generateDocument(args = {}) {
   if (completed.has(key)) return { ...completed.get(key), duplicate_call: true, terminal: true };
 
   const questions = await makeQuestions(topic, count, language);
+  FONT_PATH = await resolveFontPath();
   const pdf = await makePdf(title, questions);
   const filename = `${title.replace(/[^a-zA-Z0-9_-]+/g, '_')}_${count}.pdf`;
   const fileId = await sendTelegram(pdf, filename, `📄 ${title}\nප්‍රශ්න ${count}ක් සහිත designed PDF එක සාර්ථකව attach කළා.`);
