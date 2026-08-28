@@ -44,7 +44,7 @@ const fs=require('fs');const path=require('path');
 
   const bridgeMarker='    const MAX_TOOL_ROUNDS = 10;';
   if(s.includes(bridgeMarker)&&!s.includes('global.__nightAgentLiveBridge = {')){
-    const bridge=`    global.__nightAgentLiveBridge={step:async(label,state='running')=>{const icon=state==='done'?'▫️':state==='error'?'⚠️':state==='waiting'?'⏸️':LIVE_SPINNER[liveFrame%LIVE_SPINNER.length];statusLines.push(\`${icon} \${String(label)}\${state==='running'?'...':state==='done'?' — හරි ගියා':state==='waiting'?' — confirm එකක් ඕනේ':' — අවුලක් ආවා'}\`);await renderStatus();}};\n    liveTicker=setInterval(()=>{liveFrame++;renderStatus().catch(()=>{});},2200);\n\n`;
+    const bridge=`    global.__nightAgentLiveBridge={step:async(label,state='running')=>{const icon=state==='done'?'▫️':state==='error'?'⚠️':state==='waiting'?'⏸️':LIVE_SPINNER[liveFrame%LIVE_SPINNER.length];statusLines.push(\`\${icon} \${String(label)}\${state==='running'?'...':state==='done'?' — හරි ගියා':state==='waiting'?' — confirm එකක් ඕනේ':' — අවුලක් ආවා'}\`);await renderStatus();}};\n    liveTicker=setInterval(()=>{liveFrame++;renderStatus().catch(()=>{});},2200);\n\n`;
     s=s.replace(bridgeMarker,bridge+bridgeMarker);
   }
   const oldCheckin=`        if (!checkinTimer) {\n          checkinTimer = setInterval(() => {\n            bot.sendMessage(CHAT_ID, \`🔄 Still working on this — now doing: \${currentStepLabel}\`)\n              .catch((e) => console.error("progress check-in send failed:", e.message));\n          }, CHECKIN_INTERVAL_MS);\n        }\n        currentStepLabel = functionCalls.map((fc) => fc.name).join(", ");`;
