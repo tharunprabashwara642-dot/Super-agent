@@ -1,28 +1,21 @@
 // Safe wrapper for optional source-code boot patches.
-// A patch is an enhancement, not a reason for the Telegram bot to stay offline.
-// boot_patch.js only writes index.js at the end, so if it throws before that
-// point its in-memory changes are discarded and the original index.js remains
-// intact. We therefore catch each optional patch independently and still let
-// web_boot.js start.
 try {
-  require("./boot_patch.js");
+  require('./boot_patch.js');
 } catch (error) {
-  console.error("⚠️ Optional boot patch failed; continuing startup:", error?.stack || error?.message || error);
+  console.error('⚠️ Optional boot patch failed; continuing startup:', error?.stack || error?.message || error);
 }
-
-// First-class artifact routing is kept as a separate, idempotent patch so it
-// can evolve without making the legacy boot patch more fragile. It runs after
-// the legacy patch and before web_boot loads index.js.
 try {
-  require("./runtime_document_patch.js");
+  require('./runtime_document_patch.js');
 } catch (error) {
-  console.error("⚠️ Document routing patch failed; continuing startup:", error?.stack || error?.message || error);
+  console.error('⚠️ Document routing patch failed; continuing startup:', error?.stack || error?.message || error);
 }
-
-// V2 hardens routing across multi-round tool failures and preserves the
-// specialized MCQ renderer preference.
 try {
-  require("./runtime_document_patch_v2.js");
+  require('./runtime_document_patch_v2.js');
 } catch (error) {
-  console.error("⚠️ Document routing V2 patch failed; continuing startup:", error?.stack || error?.message || error);
+  console.error('⚠️ Document routing V2 patch failed; continuing startup:', error?.stack || error?.message || error);
+}
+try {
+  require('./runtime_live_activity_patch.js');
+} catch (error) {
+  console.error('⚠️ Live activity patch failed; continuing startup:', error?.stack || error?.message || error);
 }
