@@ -52,8 +52,6 @@ const fs=require('fs');const path=require('path');
   const finallyMarker='      if (checkinTimer) clearInterval(checkinTimer);';
   if(s.includes(finallyMarker))s=s.replace(finallyMarker,'      if(checkinTimer)clearInterval(checkinTimer); if(liveTicker)clearInterval(liveTicker); if(global.__nightAgentLiveBridge)delete global.__nightAgentLiveBridge;');
 
-  // Robust design schema insertion: locate the actual generate_mcq_pdf
-  // declaration and its title line instead of depending on exact escaping.
   if(!/name:\s*["']generate_mcq_pdf["'][\s\S]{0,5000}\bdesign:\s*\{/.test(s)){
     const mcq=s.indexOf('name: "generate_mcq_pdf"');
     if(mcq>=0){
@@ -61,7 +59,7 @@ const fs=require('fs');const path=require('path');
       const titleEnd=s.indexOf('\n',titlePos);
       const reqPos=s.indexOf('required: ["topic"]',titleEnd);
       if(titlePos>=0&&titleEnd>=0&&reqPos>=0){
-        const designLine='            design: { type: "STRING", description: "FREE-FORM design/layout brief extracted from the USER\\'S ENTIRE MESSAGE. Preserve every requested visual requirement, density, spacing, colors, typography, header/footer, answer-key layout and any request to avoid blank/wasted pages. Do not replace this with a fixed template." },\n';
+        const designLine='            design: { type: "STRING", description: "FREE-FORM design/layout brief extracted from the USER FULL MESSAGE. Preserve every requested visual requirement, density, spacing, colors, typography, header/footer, answer-key layout and any request to avoid blank/wasted pages. Do not replace this with a fixed template." },\n';
         s=s.slice(0,titleEnd+1)+designLine+s.slice(titleEnd+1);
       }
     }
