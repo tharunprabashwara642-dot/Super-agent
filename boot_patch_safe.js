@@ -18,3 +18,11 @@ try {
 } catch (error) {
   console.error("⚠️ Document routing patch failed; continuing startup:", error?.stack || error?.message || error);
 }
+
+// V2 hardens routing across multi-round tool failures and preserves the
+// specialized MCQ renderer preference.
+try {
+  require("./runtime_document_patch_v2.js");
+} catch (error) {
+  console.error("⚠️ Document routing V2 patch failed; continuing startup:", error?.stack || error?.message || error);
+}
