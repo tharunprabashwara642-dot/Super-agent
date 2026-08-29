@@ -1,0 +1,25 @@
+{
+  "name": "night-agent-tasks-bot",
+  "version": "2.0.0",
+  "description": "Autonomous personal agent with tool execution, skills, verification and bounded retries",
+  "main": "index.js",
+  "packageManager": "npm@10.8.2",
+  "scripts": {
+    "start": "node boot_patch_safe.js && node web_boot.js",
+    "check": "node --check index.js && node --check web_boot.js && node --check web_ui.js && node --check telegram_bootstrap_patch.js && node --check telegram_confirmation_patch.js && node --check boot_patch_safe.js && node --check boot_patch.js && node --check runtime_document_patch.js && node --check runtime_document_patch_v2.js && node --check runtime_pdf_delivery_v3.js && node --check runtime_document_routing_v4.js && node --check runtime_live_activity_patch.js && node --check live_activity.js && node --check native_document_router.js && node --check native_document_tool.js && node --check native_document_tool_v2.js && node --check native_document_tool_v3_browser.js && node --check agent_runtime_guard.js && node --check execution_guard.js && node --check health_server.js"
+  },
+  "engines": {
+    "node": ">=20 <25"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "node-telegram-bot-api": "^0.66.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@google/genai": "^2.4.0",
+    "pdfkit": "^0.20.1",
+    "@fontsource/noto-sans-sinhala": "^5.2.7",
+    "puppeteer": "^22.0.0",
+    "ws": "^8.18.0"
+  }
+}
