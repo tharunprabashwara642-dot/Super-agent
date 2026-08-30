@@ -11,6 +11,11 @@ const path = require("path");
 
 require("./telegram_bootstrap_patch.js");
 
+// The legacy NVIDIA brain was removed during the Anthropic migration. Keep
+// the runtime entrypoint provider-neutral and explicitly wire the current
+// Anthropic Gemini-shape compatibility brain into the agent runtime.
+const { chatShimmed: __agentBrain } = require("./anthropic_brain.js");
+
 const entry = path.join(__dirname, "index.js");
 let source = fs.readFileSync(entry, "utf8");
 
@@ -27,7 +32,7 @@ const exportHook = `
 const { createAgentRuntime } = require("./agent_runtime_v3");
 const { handleApprovalCallback } = require("./agent_runtime_v3_callback");
 const __agentRuntime = createAgentRuntime({
-  brain: nvidiaChatShimmed,
+  brain: __agentBrain,
   toolDeclarations: CHAT_TOOLS,
   directTool: runToolDirectly,
   sensitiveTools: SENSITIVE_TOOLS,
