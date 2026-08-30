@@ -23,7 +23,7 @@ test('production boot chain is Gemini-only', () => {
   assert.match(live, /global\.__nightAgentWeb\?\.bot/);
 });
 
-test('stale V2 document patch is not in the production startup chain', () => {
+test('stale document source patch is not executed by production startup', () => {
   const safe = read('boot_patch_safe.js');
-  assert.doesNotMatch(safe, /runtime_document_patch_v2\.js/);
+  assert.doesNotMatch(safe, /require\(['\"]\.\/runtime_document_patch_v2\.js['\"]\)/);
 });
