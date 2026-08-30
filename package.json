@@ -5,13 +5,11 @@
   "main": "index.js",
   "packageManager": "npm@10.8.2",
   "scripts": {
-    "start": "node boot_patch_safe.js && node web_boot.js",
-    "check": "node --check index.js && node --check web_boot.js && node --check web_ui.js && node --check live_activity.js && node --check agent_orchestrator.js && node --check agent_runtime_v3.js && node --check sub_agents.js && node --check native_document_tool_v3_browser.js && node --check native_document_tool_v2.js && node --check native_document_router.js && node --check skill_runtime.js && node --check health_server.js",
+    "start": "node -r ./runtime_v4_features.js boot_patch_safe.js && node -r ./runtime_v4_features.js web_boot.js",
+    "check": "node --check index.js && node --check web_boot.js && node --check web_ui.js && node --check live_activity.js && node --check agent_orchestrator.js && node --check agent_runtime_v3.js && node --check runtime_v4_features.js && node --check semantic_memory_v4.js && node --check sub_agents.js && node --check native_document_tool_v3_browser.js && node --check native_document_tool_v2.js && node --check native_document_router.js && node --check skill_runtime.js && node --check health_server.js",
     "test:runtime": "node --test test/agent_runtime_v3.test.js"
   },
-  "engines": {
-    "node": ">=20 <25"
-  },
+  "engines": {"node": ">=20 <25"},
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.0",
     "node-telegram-bot-api": "^0.66.0",
