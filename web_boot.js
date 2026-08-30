@@ -1,20 +1,72 @@
-// Starts the existing agent unchanged, then attaches the web UI to the
-// SAME HTTP server and the SAME chat/tool state. This avoids creating a
-// second agent, second model session, or second Telegram poller.
+// Runtime entrypoint for the Super Agent.
+//
+// index.js is intentionally kept as the compatibility layer for the existing
+// integrations. We transform only the two top-level handlers at compile time:
+// the new runtime owns user-request planning/execution and the new worker
+// dispatcher owns real sub-agent execution. The existing tool implementations
+// remain reusable without duplicating Gmail/Drive/GitHub/Railway logic.
 const fs = require("fs");
 const Module = require("module");
 const path = require("path");
 
-// IMPORTANT: telegram_bootstrap_patch.js must run in THIS Node process.
-// Running it as a separate `node telegram_bootstrap_patch.js` process only
-// patches that process's TelegramBot prototype and has no effect on index.js.
-// Loading it here makes allowed_updates + message de-duplication effective
-// for the real bot instance created when index.js is compiled below.
 require("./telegram_bootstrap_patch.js");
 
 const entry = path.join(__dirname, "index.js");
-const source = fs.readFileSync(entry, "utf8");
-const exportHook = `\n;global.__nightAgentWeb = {\n  bot,\n  httpServer,\n  handleChatMessage,\n  fetchRecentConversation,\n  logBotMessage,\n  pendingConfirmations,\n  applyDetectedCredentials,\n  runToolDirectly,\n  cancelAllGoals,\n};\n`;
+let source = fs.readFileSync(entry, "utf8");
+
+const handleMarker = "async function handleChatMessage(userText) {";
+const subAgentMarker = "async function dispatchSubAgent(args = {}) {";
+if (!source.includes(handleMarker)) throw new Error("index.js handleChatMessage entrypoint not found");
+if (!source.includes(subAgentMarker)) throw new Error("index.js dispatchSubAgent entrypoint not found");
+
+source = source.replace(handleMarker, "async function legacyHandleChatMessage(userText) {");
+source = source.replace(subAgentMarker, "async function legacyDispatchSubAgent(args = {}) {");
+
+const exportHook = `
+;
+const { createAgentRuntime } = require("./agent_runtime_v3");
+const { handleApprovalCallback } = require("./agent_runtime_v3_callback");
+const __agentRuntime = createAgentRuntime({
+  brain: nvidiaChatShimmed,
+  toolDeclarations: CHAT_TOOLS,
+  directTool: runToolDirectly,
+  sensitiveTools: SENSITIVE_TOOLS,
+  bot,
+  chatId: CHAT_ID,
+  supabase,
+  baseSystemInstruction: BASE_SYSTEM_INSTRUCTION,
+  fetchRecentConversation,
+  fetchRecentMemories,
+  getUserProfile,
+  createAgentTask,
+  updateAgentTask,
+  recordAgentTaskEvent,
+});
+
+async function handleChatMessage(userText) {
+  return __agentRuntime.handleUserRequest(userText);
+}
+
+async function dispatchSubAgent(args = {}) {
+  return __agentRuntime.runStandaloneSubAgent(args);
+}
+
+global.__nightAgentWeb = {
+  bot,
+  httpServer,
+  handleChatMessage,
+  legacyHandleChatMessage,
+  fetchRecentConversation,
+  fetchRecentMemories,
+  logBotMessage,
+  pendingConfirmations,
+  applyDetectedCredentials,
+  runToolDirectly,
+  cancelAllGoals,
+  handleAgentV3Callback: (query) => handleApprovalCallback(__agentRuntime, query),
+  agentRuntime: __agentRuntime,
+};
+`;
 
 const m = new Module(entry, module);
 m.filename = entry;
@@ -22,14 +74,20 @@ m.paths = Module._nodeModulePaths(__dirname);
 m._compile(source + exportHook, entry);
 
 const agent = global.__nightAgentWeb;
-if (!agent || !agent.httpServer || !agent.bot) throw new Error("Night Agent did not expose its HTTP server and Telegram bot");
+if (!agent || !agent.httpServer || !agent.bot) {
+  throw new Error("Night Agent did not expose its HTTP server and Telegram bot");
+}
 
-// Telegram returns HTTP 409 when TWO processes use getUpdates for the same
-// bot token. Railway deployments can briefly overlap an old and new instance,
-// and an accidentally duplicated service can do the same thing permanently.
-// Do not let that become a tight retry/error storm. Give the other poller a
-// chance to own the token, then restart this poller with jitter. If this is
-// the only live instance, it will naturally recover on the next attempt.
+// The V3 runtime owns its own callback namespace (agentv3:*), while the
+// existing index.js confirmation handler continues to own legacy callbacks.
+agent.bot.on("callback_query", async (query) => {
+  const handled = await agent.handleAgentV3Callback(query).catch((error) => {
+    console.error("agent-v3 callback error:", error?.stack || error?.message || error);
+    return true;
+  });
+  if (handled) return;
+});
+
 let pollingRecoveryTimer = null;
 let pollingRecoveryRunning = false;
 agent.bot.on("polling_error", async (error) => {
@@ -68,9 +126,6 @@ agent.bot.on("polling_error", async (error) => {
 
 const { handleWebRequest } = require("./web_ui");
 
-// Replace the original request handler with one dispatcher. It awaits the
-// web handler before falling back to the agent's existing health response,
-// avoiding the race where index.js could answer `ok` before the web API did.
 const originals = agent.httpServer.listeners("request").slice();
 agent.httpServer.removeAllListeners("request");
 const original = originals[0];
@@ -83,9 +138,12 @@ agent.httpServer.on("request", (req, res) => {
     if (!handled && original) original.call(agent.httpServer, req, res);
   }).catch((e) => {
     console.error("Web UI request error:", e.message);
-    if (!res.headersSent) { res.writeHead(500, { "Content-Type": "application/json" }); res.end(JSON.stringify({ error: "Internal server error" })); }
+    if (!res.headersSent) {
+      res.writeHead(500, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Internal server error" }));
+    }
   });
 });
 
-console.log("🌐 Claude-style web UI attached to the existing Night Agent server");
+console.log("🌐 Super Agent V3 runtime attached (dynamic planning + worker sub-agents)");
 console.log("🌐 Open the Railway public URL in a browser and use WEB_UI_TOKEN to sign in.");

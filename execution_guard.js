@@ -1,9 +1,9 @@
 'use strict';
 
-// Bounded execution guard. This guard is intentionally time-windowed because
-// runCustomTool is invoked from a long-lived Telegram process rather than a
-// request-scoped HTTP handler. A guard that stores lifetime counters would
-// eventually block legitimate future tasks.
+// Bounded execution guard for long-lived agent workers. A timeout now aborts
+// the operation through an AbortSignal when the underlying tool supports it.
+// Backwards-compatible callbacks that ignore the signal still get the guard's
+// bounded rejection, but new tools should always honor the signal.
 class ExecutionGuard {
   constructor(options = {}) {
     this.maxSteps = Number(options.maxSteps || process.env.AGENT_MAX_STEPS || 32);
@@ -65,16 +65,27 @@ class ExecutionGuard {
       throw new Error(`Repeated identical tool call blocked: ${name}. Change strategy or report the blocker.`);
     }
 
+    const controller = new AbortController();
     let timer;
+    let timedOut = false;
     try {
-      return await Promise.race([
-        Promise.resolve().then(fn),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error(`Tool timed out after ${this.stepTimeoutMs}ms: ${name}`)), this.stepTimeoutMs);
-        }),
-      ]);
+      const operation = Promise.resolve().then(() => {
+        // New tools can consume the signal as their first callback argument:
+        // guard.run('tool', (signal) => fetch(url, { signal }), args)
+        // Legacy zero-argument callbacks continue to work unchanged.
+        return fn.length > 0 ? fn(controller.signal, args) : fn();
+      });
+      const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          controller.abort(new Error(`Tool timed out after ${this.stepTimeoutMs}ms: ${name}`));
+          reject(new Error(`Tool timed out after ${this.stepTimeoutMs}ms: ${name}`));
+        }, this.stepTimeoutMs);
+      });
+      return await Promise.race([operation, timeout]);
     } finally {
       if (timer) clearTimeout(timer);
+      if (timedOut) controller.abort();
     }
   }
 }
