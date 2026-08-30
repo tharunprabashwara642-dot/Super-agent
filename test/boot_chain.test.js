@@ -6,30 +6,24 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const read = (name) => fs.readFileSync(path.join(root, name), 'utf8');
 
-test('production boot chain uses V5 directly and no stale NVIDIA brain reference remains in boot entrypoints', () => {
+test('production boot chain is Gemini-only', () => {
   const pkg = JSON.parse(read('package.json'));
   const webBoot = read('web_boot.js');
-  const bootV4 = read('boot_v4.js');
-  const bootV5 = read('boot_v5.js');
+  const bootV6 = read('boot_v6.js');
+  const live = read('live_activity.js');
 
-  assert.match(pkg.scripts.start, /boot_v5\.js/);
-  assert.doesNotMatch(webBoot, /nvidiaChatShimmed/);
-  assert.doesNotMatch(bootV4, /nvidiaChatShimmed/);
-  assert.match(webBoot, /anthropic_brain\.js.*chatShimmed/);
-  assert.match(bootV5, /require\('\.\/web_boot\.js'\)/);
+  assert.match(pkg.scripts.start, /boot_v6\.js/);
+  assert.doesNotMatch(JSON.stringify(pkg.dependencies), /anthropic/i);
+  assert.doesNotMatch(webBoot, /anthropic_brain|nvidiaChatShimmed/);
+  assert.match(webBoot, /gemini_brain\.js/);
+  assert.doesNotMatch(bootV6, /Anthropic|nvidiaChatShimmed/i);
+  assert.match(bootV6, /serpapiSearch/);
+  assert.match(bootV6, /semanticRecall/);
+  assert.match(bootV6, /re-planning/);
+  assert.match(live, /global\.__nightAgentWeb\?\.bot/);
 });
 
-test('V5 production bootstrap owns search, memory, planning, worker, and status wiring', () => {
-  const bootV5 = read('boot_v5.js');
-  for (const marker of [
-    'serpapiSearch',
-    'semanticRecall',
-    'runtime._plan',
-    'runtime._runWorker',
-    'runtime._status',
-    'qualityPolicy',
-    're-planning with a different strategy',
-  ]) {
-    assert.ok(bootV5.includes(marker), `missing V5 wiring marker: ${marker}`);
-  }
+test('stale V2 document patch is not in the production startup chain', () => {
+  const safe = read('boot_patch_safe.js');
+  assert.doesNotMatch(safe, /runtime_document_patch_v2\.js/);
 });
