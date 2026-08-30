@@ -16,6 +16,11 @@ const { chatShimmed: __agentBrain } = require("./gemini_brain.js");
 const entry = path.join(__dirname, "index.js");
 let source = fs.readFileSync(entry, "utf8");
 
+// Older integration code inside index.js still uses the historical variable
+// name. Rebind that identifier to the Gemini provider in the compiled source
+// so no NVIDIA/Anthropic provider is needed at runtime.
+source = source.replace(/\bnvidiaChatShimmed\b/g, "__agentBrain");
+
 const handleMarker = "async function handleChatMessage(userText) {";
 const subAgentMarker = "async function dispatchSubAgent(args = {}) {";
 if (!source.includes(handleMarker)) throw new Error("index.js handleChatMessage entrypoint not found");
