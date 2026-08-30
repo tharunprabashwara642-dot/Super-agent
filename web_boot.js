@@ -1,15 +1,17 @@
 // Runtime entrypoint for the Super Agent.
 //
 // index.js is intentionally kept as the compatibility layer for the existing
-// integrations. We transform only the two top-level handlers at compile time:
-// the new runtime owns user-request planning/execution and the new worker
-// dispatcher owns real sub-agent execution. The existing tool implementations
+// integrations. The runtime owns user-request planning/execution and the
+// worker dispatcher owns sub-agent execution. Existing tool implementations
 // remain reusable without duplicating Gmail/Drive/GitHub/Railway logic.
 const fs = require("fs");
 const Module = require("module");
 const path = require("path");
 
 require("./telegram_bootstrap_patch.js");
+
+// Single source of truth for LLM traffic: Gemini.
+const { chatShimmed: __agentBrain } = require("./gemini_brain.js");
 
 const entry = path.join(__dirname, "index.js");
 let source = fs.readFileSync(entry, "utf8");
@@ -27,7 +29,7 @@ const exportHook = `
 const { createAgentRuntime } = require("./agent_runtime_v3");
 const { handleApprovalCallback } = require("./agent_runtime_v3_callback");
 const __agentRuntime = createAgentRuntime({
-  brain: require("./anthropic_brain.js").chatShimmed,
+  brain: __agentBrain,
   toolDeclarations: CHAT_TOOLS,
   directTool: runToolDirectly,
   sensitiveTools: SENSITIVE_TOOLS,
@@ -78,8 +80,6 @@ if (!agent || !agent.httpServer || !agent.bot) {
   throw new Error("Night Agent did not expose its HTTP server and Telegram bot");
 }
 
-// The V3 runtime owns its own callback namespace (agentv3:*), while the
-// existing index.js confirmation handler continues to own legacy callbacks.
 agent.bot.on("callback_query", async (query) => {
   const handled = await agent.handleAgentV3Callback(query).catch((error) => {
     console.error("agent-v3 callback error:", error?.stack || error?.message || error);
@@ -145,5 +145,5 @@ agent.httpServer.on("request", (req, res) => {
   });
 });
 
-console.log("🌐 Super Agent V3 runtime attached (dynamic planning + worker sub-agents)");
+console.log("🌐 Super Agent runtime attached (Gemini + dynamic planning + worker sub-agents)");
 console.log("🌐 Open the Railway public URL in a browser and use WEB_UI_TOKEN to sign in.");
