@@ -30,6 +30,6 @@ test('V5 production bootstrap owns search, memory, planning, worker, and status 
     'qualityPolicy',
     're-planning with a different strategy',
   ]) {
-    assert.match(bootV5, new RegExp(marker.replace(/[.*+?^${}()|[\\]\\]/g, '\\$&')));
+    assert.ok(bootV5.includes(marker), `missing V5 wiring marker: ${marker}`);
   }
 });
