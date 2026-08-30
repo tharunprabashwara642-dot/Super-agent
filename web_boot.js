@@ -19,14 +19,13 @@ const subAgentMarker = "async function dispatchSubAgent(args = {}) {";
 if (!source.includes(handleMarker)) throw new Error("index.js handleChatMessage entrypoint not found");
 if (!source.includes(subAgentMarker)) throw new Error("index.js dispatchSubAgent entrypoint not found");
 
-// Keep the legacy implementations available for compatibility/debugging, but
-// replace the live entrypoints with the structured runtime below.
 source = source.replace(handleMarker, "async function legacyHandleChatMessage(userText) {");
 source = source.replace(subAgentMarker, "async function legacyDispatchSubAgent(args = {}) {");
 
 const exportHook = `
 ;
 const { createAgentRuntime } = require("./agent_runtime_v3");
+const { handleApprovalCallback } = require("./agent_runtime_v3_callback");
 const __agentRuntime = createAgentRuntime({
   brain: nvidiaChatShimmed,
   toolDeclarations: CHAT_TOOLS,
@@ -64,7 +63,7 @@ global.__nightAgentWeb = {
   applyDetectedCredentials,
   runToolDirectly,
   cancelAllGoals,
-  handleAgentV3Callback: (query) => __agentRuntime.handleCallbackQuery(query),
+  handleAgentV3Callback: (query) => handleApprovalCallback(__agentRuntime, query),
   agentRuntime: __agentRuntime,
 };
 `;
@@ -89,12 +88,6 @@ agent.bot.on("callback_query", async (query) => {
   if (handled) return;
 });
 
-// Telegram returns HTTP 409 when TWO processes use getUpdates for the same
-// bot token. Railway deployments can briefly overlap an old and new instance,
-// and an accidentally duplicated service can do the same thing permanently.
-// Do not let that become a tight retry/error storm. Give the other poller a
-// chance to own the token, then restart this poller with jitter. If this is
-// the only live instance, it will naturally recover on the next attempt.
 let pollingRecoveryTimer = null;
 let pollingRecoveryRunning = false;
 agent.bot.on("polling_error", async (error) => {
