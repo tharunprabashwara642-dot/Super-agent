@@ -1,6 +1,5 @@
-// Safe startup patches only. Avoid stale source-text patches in production.
-try { require('./boot_patch.js'); } catch (error) { console.error('⚠️ Optional boot patch failed; continuing startup:', error?.stack || error?.message || error); }
-// The legacy document V2 patch is intentionally not loaded: document routing
-// now belongs to the real Gemini runtime and should not depend on exact source text.
-try { require('./runtime_pdf_delivery_v3.js'); } catch (error) { console.error('⚠️ PDF/live V3 patch failed; continuing startup:', error?.stack || error?.message || error); }
-try { require('./runtime_document_routing_v4.js'); } catch (error) { console.error('⚠️ Document routing V4 patch failed; continuing startup:', error?.stack || error?.message || error); }
+// Production startup intentionally avoids legacy source-mutation patches.
+// All agent planning, provider wiring, search, memory, verification and live
+// activity now live in the real Gemini runtime. Keeping old text-rewrite
+// patches out of the boot chain prevents stale-provider/scope failures.
+console.log('✅ Legacy source-mutation patches disabled; using Gemini runtime directly.');
