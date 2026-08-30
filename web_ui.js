@@ -1,4 +1,287 @@
-const HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Night Agent</title><style>:root{--bg:#0b0d10;--panel:#12161b;--line:#293039;--text:#f3f5f7;--muted:#8e99a6;--accent:#d9ff61;--user:#20262e}*{box-sizing:border-box}body{margin:0;height:100vh;background:var(--bg);color:var(--text);font:15px/1.55 Inter,system-ui,-apple-system,Segoe UI,sans-serif;overflow:hidden}.app{height:100%;display:grid;grid-template-columns:250px 1fr}.side{background:#090b0e;border-right:1px solid var(--line);padding:16px;display:flex;flex-direction:column;gap:14px}.brand{font-weight:800;display:flex;gap:9px;align-items:center}.orb{width:24px;height:24px;border-radius:50%;background:var(--accent);box-shadow:0 0 25px #d9ff6155}.new{padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text);cursor:pointer;text-align:left}.hint{margin-top:auto;color:var(--muted);font-size:12px}.main{min-width:0;display:flex;flex-direction:column}.top{height:58px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 20px}.status{font-size:12px;color:var(--muted)}.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:7px}.chat{flex:1;overflow:auto;padding:28px max(20px,calc((100vw - 900px)/2))}.welcome{max-width:760px;margin:10vh auto}.welcome h1{font-size:34px;margin:0 0 8px}.welcome p{color:var(--muted)}.msg{max-width:760px;margin:0 auto 22px;display:flex;gap:12px}.avatar{width:30px;height:30px;flex:0 0 30px;border-radius:50%;background:var(--panel);display:grid;place-items:center;font-size:12px}.bubble{min-width:0;white-space:pre-wrap;overflow-wrap:anywhere}.user .bubble{background:var(--user);border:1px solid var(--line);border-radius:15px;padding:11px 14px}.thinking{color:var(--muted);font-style:italic}.confirm{margin-top:10px;padding:12px;border:1px solid var(--line);background:var(--panel);border-radius:12px}.confirm button{border:0;border-radius:9px;padding:8px 13px;margin-right:7px;cursor:pointer}.yes{background:var(--accent)}.no{background:#2a3037;color:#fff}.composer{border-top:1px solid var(--line);padding:14px max(20px,calc((100vw - 900px)/2))}.box{display:flex;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:15px;padding:8px}.box:focus-within{border-color:#515b66}.box textarea{flex:1;resize:none;max-height:180px;background:transparent;border:0;outline:0;color:var(--text);padding:7px;font:inherit}.send{width:42px;height:42px;border:0;border-radius:11px;background:var(--accent);cursor:pointer;font-size:18px}.send:disabled{opacity:.4}.login{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:5}.loginbox{width:min(420px,calc(100vw - 32px));background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px}.loginbox input{width:100%;padding:12px;margin-top:10px;border:1px solid var(--line);border-radius:9px;background:#0b0d10;color:#fff}.loginbox button{width:100%;margin-top:10px;padding:11px;border:0;border-radius:9px;background:var(--accent);cursor:pointer}.error{color:#ff7272;font-size:13px;margin-top:8px}@media(max-width:700px){.app{grid-template-columns:1fr}.side{display:none}}</style></head><body><div id="login" class="login"><div class="loginbox"><div class="brand"><span class="orb"></span> Night Agent</div><h2>Connect to your agent</h2><div class="status">Enter WEB_UI_TOKEN from Railway Variables.</div><input id="token" type="password" placeholder="WEB_UI_TOKEN"><button onclick="login()">Open chat</button><div id="err" class="error"></div></div></div><div id="app" class="app" style="display:none"><aside class="side"><div class="brand"><span class="orb"></span> Night Agent</div><button class="new" onclick="newChat()">＋ New chat</button><div class="hint">Same agent as Telegram.<br><br>Messages use the existing Claude brain, tools, memory and confirmation system.</div></aside><main class="main"><header class="top"><div>Chat</div><div class="status"><span class="dot"></span><span id="model">online</span></div></header><section id="chat" class="chat"><div id="welcome" class="welcome"><h1>How can I help?</h1><p>Ask your Night Agent to code, debug, deploy, create files, use Google, or work with Railway.</p></div></section><div class="composer"><div class="box"><textarea id="input" rows="1" placeholder="Message your agent…"></textarea><button id="send" class="send" onclick="send()">↑</button></div></div></main></div><script>let token=localStorage.getItem('night_agent_token')||'',busy=false;const $=x=>document.getElementById(x);async function api(path,opt={}){opt.headers=Object.assign({'Content-Type':'application/json','x-web-ui-token':token},opt.headers||{});const r=await fetch(path,opt);let d={};try{d=await r.json()}catch{}if(!r.ok)throw Error(d.error||'Request failed');return d}async function login(){token=$('token').value.trim();if(!token)return;localStorage.setItem('night_agent_token',token);try{const d=await api('/api/health');$('model').textContent=d.model||'online';$('login').style.display='none';$('app').style.display='grid';loadHistory()}catch(e){$('err').textContent=e.message;localStorage.removeItem('night_agent_token')}}async function loadHistory(){try{const d=await api('/api/history');for(const m of d.messages||[])add(m.role,m.content);scroll()}catch(e){}}function add(role,text){$('welcome')?.remove();const r=document.createElement('div');r.className='msg '+(role==='user'?'user':'agent');const a=document.createElement('div');a.className='avatar';a.textContent=role==='user'?'You':'✦';const b=document.createElement('div');b.className='bubble';b.textContent=text;r.append(a,b);$('chat').append(r);return r}function scroll(){const c=$('chat');c.scrollTop=c.scrollHeight}function newChat(){$('chat').innerHTML='<div id="welcome" class="welcome"><h1>How can I help?</h1><p>Start a new task with your Night Agent.</p></div>'}async function send(){if(busy)return;const i=$('input'),text=i.value.trim();if(!text)return;i.value='';i.style.height='auto';add('user',text);const t=add('agent','');t.querySelector('.bubble').className='bubble thinking';t.querySelector('.bubble').textContent='Thinking…';busy=true;$('send').disabled=true;i.disabled=true;scroll();try{const d=await api('/api/chat',{method:'POST',body:JSON.stringify({message:text})});t.remove();add('agent',d.reply||'');if(d.confirmation)confirmBox(d.confirmation)}catch(e){t.querySelector('.bubble').className='bubble';t.querySelector('.bubble').textContent='⚠️ '+e.message}finally{busy=false;$('send').disabled=false;i.disabled=false;i.focus();scroll()}}function confirmBox(c){const r=document.createElement('div');r.className='msg agent';const a=document.createElement('div');a.className='avatar';a.textContent='✦';const b=document.createElement('div');b.className='bubble';const x=document.createElement('div');x.className='confirm';const p=document.createElement('p');p.textContent=c.description||'Confirmation required';const y=document.createElement('button');y.className='yes';y.textContent='Confirm';const n=document.createElement('button');n.className='no';n.textContent='Cancel';y.onclick=()=>act(c.id,true,x);n.onclick=()=>act(c.id,false,x);x.append(p,y,n);b.append(x);r.append(a,b);$('chat').append(r);scroll()}async function act(id,yes,x){x.querySelectorAll('button').forEach(b=>b.disabled=true);x.querySelector('p').textContent=yes?'Running…':'Cancelled.';try{const d=await api('/api/confirm',{method:'POST',body:JSON.stringify({id,confirm:yes})});x.querySelector('p').textContent=d.reply||'Done.';if(d.confirmation)confirmBox(d.confirmation)}catch(e){x.querySelector('p').textContent='⚠️ '+e.message}scroll()}$('input').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});$('input').addEventListener('input',e=>{e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,180)+'px'});if(token)login();</script></body></html>`;
+const HTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Super Agent</title>
+<style>
+  :root {
+    --bg: #f7f7f5;
+    --panel: #ffffff;
+    --line: #e6e6e2;
+    --text: #1a1a1a;
+    --muted: #6b6b66;
+    --accent: #1a1a1a;
+    --user-bg: #efefec;
+    --soft: #f0f0ed;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    overflow: hidden;
+  }
+  .app { height: 100%; display: grid; grid-template-columns: 240px 1fr; }
+  .side {
+    background: var(--panel);
+    border-right: 1px solid var(--line);
+    padding: 18px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .brand { font-weight: 650; letter-spacing: -0.02em; display: flex; gap: 10px; align-items: center; }
+  .orb {
+    width: 22px; height: 22px; border-radius: 6px;
+    background: var(--accent);
+  }
+  .new {
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--soft);
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+  }
+  .new:hover { background: #e8e8e4; }
+  .hint { margin-top: auto; color: var(--muted); font-size: 12px; line-height: 1.4; }
+  .main { min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+  .top {
+    height: 54px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    background: var(--panel);
+  }
+  .status { font-size: 12px; color: var(--muted); }
+  .dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: #22c55e; margin-right: 7px;
+  }
+  .chat {
+    flex: 1; overflow: auto;
+    padding: 28px max(20px, calc((100vw - 860px) / 2));
+  }
+  .welcome { max-width: 720px; margin: 12vh auto; }
+  .welcome h1 { font-size: 28px; margin: 0 0 8px; letter-spacing: -0.03em; font-weight: 650; }
+  .welcome p { color: var(--muted); margin: 0; }
+  .msg { max-width: 720px; margin: 0 auto 20px; display: flex; gap: 12px; }
+  .avatar {
+    width: 28px; height: 28px; flex: 0 0 28px; border-radius: 8px;
+    background: var(--soft); display: grid; place-items: center; font-size: 12px;
+    border: 1px solid var(--line); color: var(--muted);
+  }
+  .user .avatar { background: var(--text); color: #fff; border-color: var(--text); }
+  .bubble { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .user .bubble {
+    background: var(--user-bg);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 13px;
+  }
+  .thinking { color: var(--muted); font-style: italic; }
+  .confirm {
+    margin-top: 10px; padding: 12px;
+    border: 1px solid var(--line); background: var(--panel); border-radius: 12px;
+  }
+  .confirm button {
+    border: 0; border-radius: 8px; padding: 8px 12px; margin-right: 6px; cursor: pointer; font: inherit;
+  }
+  .yes { background: var(--text); color: #fff; }
+  .no { background: var(--soft); color: var(--text); border: 1px solid var(--line) !important; }
+  .composer {
+    border-top: 1px solid var(--line);
+    padding: 14px max(20px, calc((100vw - 860px) / 2));
+    background: var(--panel);
+  }
+  .box {
+    display: flex; gap: 8px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 8px;
+  }
+  .box:focus-within { border-color: #bdbdb6; box-shadow: 0 0 0 3px rgba(0,0,0,0.03); }
+  .box textarea {
+    flex: 1; resize: none; max-height: 160px;
+    background: transparent; border: 0; outline: none;
+    color: var(--text); font: inherit; padding: 8px 6px;
+  }
+  .send {
+    border: 0; border-radius: 10px; padding: 0 14px;
+    background: var(--text); color: #fff; cursor: pointer; font: inherit; font-weight: 600;
+  }
+  .send:disabled { opacity: 0.45; cursor: default; }
+  @media (max-width: 820px) {
+    .app { grid-template-columns: 1fr; }
+    .side { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="orb"></span> Super Agent</div>
+    <button class="new" id="newChat">+ New chat</button>
+    <div class="hint">Clean classic UI · same agent as Telegram · confirmations for sensitive tools.</div>
+  </aside>
+  <main class="main">
+    <div class="top">
+      <div class="status"><span class="dot"></span><span id="statusText">Ready</span></div>
+      <div class="status" id="modelLabel">Agent</div>
+    </div>
+    <div class="chat" id="chat">
+      <div class="welcome" id="welcome">
+        <h1>Super Agent</h1>
+        <p>Type a request. Tools, memory, and documents run through the same agent as Telegram.</p>
+      </div>
+    </div>
+    <div class="composer">
+      <div class="box">
+        <textarea id="input" rows="1" placeholder="Message Super Agent…"></textarea>
+        <button class="send" id="send">Send</button>
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+const token = new URLSearchParams(location.search).get('token') || localStorage.getItem('webUiToken') || '';
+if (token) localStorage.setItem('webUiToken', token);
+const chat = document.getElementById('chat');
+const input = document.getElementById('input');
+const sendBtn = document.getElementById('send');
+const statusText = document.getElementById('statusText');
+const welcome = document.getElementById('welcome');
+
+function autogrow() {
+  input.style.height = 'auto';
+  input.style.height = Math.min(input.scrollHeight, 160) + 'px';
+}
+input.addEventListener('input', autogrow);
+
+function addMsg(role, text, extra) {
+  if (welcome) welcome.remove();
+  const row = document.createElement('div');
+  row.className = 'msg ' + role;
+  const av = document.createElement('div');
+  av.className = 'avatar';
+  av.textContent = role === 'user' ? 'You' : 'SA';
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.textContent = text;
+  if (extra) bubble.appendChild(extra);
+  row.appendChild(av);
+  row.appendChild(bubble);
+  chat.appendChild(row);
+  chat.scrollTop = chat.scrollHeight;
+  return bubble;
+}
+
+async function api(path, body) {
+  const opts = {
+    method: body ? 'POST' : 'GET',
+    headers: { 'Content-Type': 'application/json', 'x-web-ui-token': token },
+  };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+
+function confirmationUI(conf) {
+  if (!conf || !conf.id) return null;
+  const box = document.createElement('div');
+  box.className = 'confirm';
+  box.innerHTML = '<div style="margin-bottom:8px;color:var(--muted)">Needs confirmation</div>';
+  const desc = document.createElement('div');
+  desc.textContent = conf.description || conf.kind || 'Action';
+  box.appendChild(desc);
+  const yes = document.createElement('button');
+  yes.className = 'yes';
+  yes.textContent = 'Confirm';
+  const no = document.createElement('button');
+  no.className = 'no';
+  no.textContent = 'Cancel';
+  yes.onclick = async () => {
+    yes.disabled = no.disabled = true;
+    statusText.textContent = 'Working…';
+    try {
+      const data = await api('/api/confirm', { id: conf.id, confirm: true });
+      addMsg('agent', data.reply || 'Done.');
+    } catch (e) {
+      addMsg('agent', '⚠️ ' + e.message);
+    } finally {
+      statusText.textContent = 'Ready';
+    }
+  };
+  no.onclick = async () => {
+    yes.disabled = no.disabled = true;
+    try {
+      const data = await api('/api/confirm', { id: conf.id, confirm: false });
+      addMsg('agent', data.reply || 'Cancelled.');
+    } catch (e) {
+      addMsg('agent', '⚠️ ' + e.message);
+    }
+  };
+  box.appendChild(yes);
+  box.appendChild(no);
+  return box;
+}
+
+async function send() {
+  const message = input.value.trim();
+  if (!message) return;
+  input.value = '';
+  autogrow();
+  addMsg('user', message);
+  sendBtn.disabled = true;
+  statusText.textContent = 'Working…';
+  const thinking = document.createElement('div');
+  thinking.className = 'thinking';
+  thinking.textContent = 'Thinking…';
+  const bubble = addMsg('agent', '');
+  bubble.appendChild(thinking);
+  try {
+    const data = await api('/api/chat', { message });
+    bubble.textContent = data.reply || '';
+    const conf = confirmationUI(data.confirmation);
+    if (conf) bubble.appendChild(conf);
+  } catch (e) {
+    bubble.textContent = '⚠️ ' + e.message;
+  } finally {
+    sendBtn.disabled = false;
+    statusText.textContent = 'Ready';
+    chat.scrollTop = chat.scrollHeight;
+  }
+}
+
+sendBtn.addEventListener('click', send);
+input.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    send();
+  }
+});
+document.getElementById('newChat').onclick = () => location.reload();
+
+(async () => {
+  try {
+    const h = await api('/api/health');
+    if (h.model) document.getElementById('modelLabel').textContent = h.model;
+  } catch (_) {}
+})();
+</script>
+</body>
+</html>`;
+
 function auth(req){const expected=process.env.WEB_UI_TOKEN||process.env.VOICE_RELAY_SECRET||"";return !!expected&&String(req.headers["x-web-ui-token"]||"")===expected}
 function json(res,status,data){if(res.headersSent)return;res.writeHead(status,{"Content-Type":"application/json; charset=utf-8","Cache-Control":"no-store","Access-Control-Allow-Origin":"*"});res.end(JSON.stringify(data))}
 function body(req){return new Promise((ok,bad)=>{let s="";req.on("data",c=>{s+=c;if(s.length>1000000)req.destroy()});req.on("end",()=>{try{ok(JSON.parse(s||"{}"))}catch(e){bad(e)}});req.on("error",bad)})}

@@ -95,3 +95,31 @@ function limits() {
 }
 
 module.exports = { augment, limits, MAX_STEPS, MAX_REPAIRS, MAX_SAME_FAILURES };
+
+// --- Independent reasoning boost (appended) ---
+const REASONING_BOOST = `
+INDEPENDENT REASONING (MANDATORY):
+Before answering factual, exam, logic, or calculation questions, reason step by
+step privately. Prefer first principles over memorized patterns. For MCQs:
+eliminate wrong options explicitly, then pick the best remaining one. If two
+options look plausible, state the deciding criterion. Never guess silently —
+either compute, look up with a tool, or say you are uncertain with a best
+estimate. For Sinhala ICT / A-level style questions, use precise terminology
+and standard syllabus meanings.
+
+SUB-AGENTS:
+When a task naturally splits (research + write, code + verify, plan + execute),
+think of specialized roles (researcher, coder, writer, verifier, planner) and
+complete each role's acceptance criteria before declaring overall success.
+Do not invent parallel processes you cannot run; simulate focused passes in
+sequence within the same tool budget.
+`;
+
+const _origAugment = typeof augment === 'function' ? augment : null;
+function augmentWithReasoning(systemInstruction = '') {
+  const base = _origAugment ? _origAugment(systemInstruction) : String(systemInstruction || '');
+  if (base.includes('INDEPENDENT REASONING (MANDATORY)')) return base;
+  return `${base}\n\n${REASONING_BOOST}`.trim();
+}
+module.exports.augment = augmentWithReasoning;
+module.exports.REASONING_BOOST = REASONING_BOOST;
